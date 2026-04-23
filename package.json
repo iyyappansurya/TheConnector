@@ -1,0 +1,19 @@
+{
+  "name": "the-connector",
+  "version": "1.0.0",
+  "description": "WhatsApp-native medical consultation pipeline connecting Doctor, Patient, and Pharmacy",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "ioredis": "^5.10.1",
+    "uuid": "^9.0.0"
+  },
+  "keywords": [],
+  "license": "ISC"
+}

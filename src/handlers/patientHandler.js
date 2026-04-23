@@ -1,0 +1,132 @@
+// src/handlers/patientHandler.js
+// Handles all inbound logic for patient-side messages.
+//
+// Responsibilities:
+// - No session: create one, ask for name
+// - INTAKE state: collect name, age, symptoms sequentially
+// - ACTIVE state: stub for Mission 5 (proxied chat)
+// - PRESCRIBING / COMPLETE: ignore
+
+const { createSession, getSession, updateSession } = require('../services/sessionStore');
+const { sendText } = require('../services/whatsappService');
+
+/**
+ * Handle an inbound message from a patient.
+ * @param {{ senderNumber: string, messageText: string }} parsed
+ */
+async function handle(parsed) {
+  const { senderNumber, messageText } = parsed;
+  let session = await getSession(senderNumber);
+
+  // ── No session → first contact, create and ask for name ──
+  if (!session) {
+    const { hasActiveSession, addToQueue, getQueuePosition } = require('../services/sessionStore');
+    const isBusy = await hasActiveSession();
+    session = await createSession(senderNumber);
+    console.log(`[patientHandler] New session created for ${senderNumber}`);
+    
+    if (isBusy) {
+      await updateSession(senderNumber, { state: 'WAITING' });
+      await addToQueue(senderNumber);
+      const position = await getQueuePosition(senderNumber);
+      await sendText(senderNumber,
+        '👋 Welcome to TheConnector!\n' +
+        'A consultation is currently in progress.\n' +
+        `You are number ${position} in the queue.\n` +
+        'We will notify you when the doctor is ready. 🙏'
+      );
+      return;
+    }
+
+    await sendText(senderNumber,
+      '👋 Welcome to TheConnector!\n' +
+      "I'll connect you with our doctor shortly.\n" +
+      'First, what is your name?'
+    );
+    return;
+  }
+
+  // ── WAITING state ──
+  if (session.state === 'WAITING') {
+    const { getQueuePosition } = require('../services/sessionStore');
+    const position = await getQueuePosition(senderNumber);
+    await sendText(senderNumber, 
+      `You are number ${position} in the queue.\n` +
+      `Please wait, we will notify you shortly.`
+    );
+    return;
+  }
+
+  // ── INTAKE flow — sequential collection ──
+  if (session.state === 'INTAKE') {
+    const { intakeData } = session;
+
+    // Step 1: collect name
+    if (intakeData.name === '') {
+      await updateSession(senderNumber, { intakeData: { name: messageText } });
+      await sendText(senderNumber, `Thanks ${messageText}! How old are you?`);
+      return;
+    }
+
+    // Step 2: collect age
+    if (intakeData.age === '') {
+      await updateSession(senderNumber, { intakeData: { age: messageText } });
+      await sendText(senderNumber, 'Got it. Please briefly describe your symptoms.');
+      return;
+    }
+
+    // Step 3: collect symptoms → notify doctor → go ACTIVE
+    if (intakeData.symptoms === '') {
+      await updateSession(senderNumber, { intakeData: { symptoms: messageText } });
+
+      // Re-read session to get the fully merged intakeData
+      session = await getSession(senderNumber);
+      const { name, age, symptoms } = session.intakeData;
+
+      // Notify doctor
+      const doctorNumber = process.env.DOCTOR_WA_NUMBER;
+      await sendText(doctorNumber,
+        '🔔 New consultation request\n' +
+        '──────────────────\n' +
+        `Name: ${name}\n` +
+        `Age: ${age}\n` +
+        `Symptoms: ${symptoms}\n` +
+        '──────────────────\n' +
+        'Reply to this chat to speak with the patient.'
+      );
+
+      // Confirm to patient
+      await sendText(senderNumber,
+        `Thank you ${name}! The doctor has been notified.\n` +
+        'Please wait while we connect you. 🙏'
+      );
+
+      // Transition to ACTIVE
+      await updateSession(senderNumber, { state: 'ACTIVE' });
+      console.log(`[patientHandler] Intake complete for ${senderNumber}, state → ACTIVE`);
+      return;
+    }
+  }
+
+  // ── ACTIVE — Proxied chat ──
+  if (session.state === 'ACTIVE') {
+    const doctorNumber = process.env.DOCTOR_WA_NUMBER;
+    await sendText(doctorNumber, `[Patient]: ${messageText}`);
+    return;
+  }
+
+  // ── PRESCRIBING — patient waiting ──
+  if (session.state === 'PRESCRIBING') {
+    return;
+  }
+
+  // ── COMPLETE — proxy to pharmacy ──
+  if (session.state === 'COMPLETE') {
+    const pharmacyNumber = process.env.PHARMACY_WA_NUMBER;
+    await sendText(pharmacyNumber, `[Patient ${session.intakeData.name}]: ${messageText}`);
+    console.log('[patientHandler] COMPLETE — forwarded to pharmacy');
+    return;
+  }
+}
+
+module.exports = { handle };
