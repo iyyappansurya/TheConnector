@@ -1,14 +1,17 @@
 // src/handlers/doctorHandler.js
 const { getActiveSession, updateSession } = require('../services/sessionStore');
-const { sendText, sendButtons } = require('../services/whatsappService');
+const { sendText, sendButtons, sendMedia } = require('../services/whatsappService');
 const prescriptionService = require('../services/prescriptionService');
+
+const MEDIA_TYPES = ['image', 'document', 'audio', 'video'];
 
 /**
  * Handle an inbound message from the doctor.
  * @param {{ senderNumber: string, messageText: string }} parsed
  */
 async function handle(parsed) {
-  const { senderNumber, messageText } = parsed;
+  const { senderNumber, messageText, messageType, mediaId, mediaCaption } = parsed;
+  const isMedia = MEDIA_TYPES.includes(messageType);
   const session = await getActiveSession();
 
   if (!session) {
@@ -42,12 +45,20 @@ async function handle(parsed) {
 
   // ACTIVE state: proxied chat
   if (session.state === 'ACTIVE') {
-    await sendText(session.patientNumber, `[Doctor]: ${messageText}`);
+    if (isMedia) {
+      await sendMedia(session.patientNumber, mediaId, messageType, mediaCaption);
+    } else {
+      await sendText(session.patientNumber, `[Doctor]: ${messageText}`);
+    }
     return;
   }
 
   // PRESCRIBING state: guided flow
   if (session.state === 'PRESCRIBING') {
+    if (isMedia) {
+      await sendText(senderNumber, 'Please use text during the prescription process.');
+      return;
+    }
     await handlePrescribing(parsed, session);
     return;
   }

@@ -5,10 +5,10 @@
 // This module normalises that into a clean flat object.
 
 /**
- * Parse an inbound Gupshup webhook payload.
+ * Parse an inbound webhook payload (Gupshup or Meta).
  *
  * @param {object} body — req.body from Express
- * @returns {{ senderNumber: string, messageType: string, messageText: string, messageId: string } | null}
+ * @returns {{ senderNumber: string, messageType: string, messageText: string, messageId: string, mediaId?: string, mediaCaption?: string } | null}
  */
 const PROVIDER = process.env.WA_PROVIDER || 'gupshup';
 
@@ -86,15 +86,23 @@ function parseMetaInbound(body) {
 
     let messageType = type;
     let messageText = '';
+    let mediaId = undefined;
+    let mediaCaption = undefined;
 
     if (type === 'text') {
       messageText = message.text?.body || '';
     } else if (type === 'interactive') {
       messageType = 'button_reply';
       messageText = message.interactive?.button_reply?.title || '';
+    } else if (['image', 'document', 'audio', 'video'].includes(type)) {
+      // Media messages — extract media ID and optional caption
+      const mediaObj = message[type] || {};
+      mediaId = mediaObj.id || '';
+      mediaCaption = mediaObj.caption || '';
+      messageType = type;
     }
 
-    return { senderNumber, messageType, messageText, messageId };
+    return { senderNumber, messageType, messageText, messageId, mediaId, mediaCaption };
   } catch (err) {
     console.error('[messageParser] Error parsing Meta message:', err.message);
     return null;

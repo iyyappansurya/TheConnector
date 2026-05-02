@@ -8,14 +8,17 @@
 // - PRESCRIBING / COMPLETE: ignore
 
 const { createSession, getSession, updateSession } = require('../services/sessionStore');
-const { sendText } = require('../services/whatsappService');
+const { sendText, sendMedia } = require('../services/whatsappService');
+
+const MEDIA_TYPES = ['image', 'document', 'audio', 'video'];
 
 /**
  * Handle an inbound message from a patient.
  * @param {{ senderNumber: string, messageText: string }} parsed
  */
 async function handle(parsed) {
-  const { senderNumber, messageText } = parsed;
+  const { senderNumber, messageText, messageType, mediaId, mediaCaption } = parsed;
+  const isMedia = MEDIA_TYPES.includes(messageType);
   let session = await getSession(senderNumber);
 
   // ── No session → first contact, create and ask for name ──
@@ -59,6 +62,15 @@ async function handle(parsed) {
 
   // ── INTAKE flow — sequential collection ──
   if (session.state === 'INTAKE') {
+    // Reject media during intake — patient must complete text form first
+    if (isMedia) {
+      await sendText(senderNumber,
+        'Please complete the consultation request first before sending photos.\n' +
+        'What is your name?'
+      );
+      return;
+    }
+
     const { intakeData } = session;
 
     // Step 1: collect name
@@ -111,12 +123,22 @@ async function handle(parsed) {
   // ── ACTIVE — Proxied chat ──
   if (session.state === 'ACTIVE') {
     const doctorNumber = process.env.DOCTOR_WA_NUMBER;
-    await sendText(doctorNumber, `[Patient]: ${messageText}`);
+    if (isMedia) {
+      await sendMedia(doctorNumber, mediaId, messageType, mediaCaption);
+      if (mediaCaption) {
+        await sendText(doctorNumber, `[Patient photo]: ${mediaCaption}`);
+      }
+    } else {
+      await sendText(doctorNumber, `[Patient]: ${messageText}`);
+    }
     return;
   }
 
   // ── PRESCRIBING — patient waiting ──
   if (session.state === 'PRESCRIBING') {
+    if (isMedia) {
+      await sendText(senderNumber, 'Please use text during the prescription process.');
+    }
     return;
   }
 

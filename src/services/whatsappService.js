@@ -118,6 +118,46 @@ async function sendButtons(to, bodyText, buttons) {
 }
 
 /**
+ * Forward a media message (image, document, audio, video) via WhatsApp.
+ *
+ * @param {string} to — recipient WA number
+ * @param {string} mediaId — Meta media ID (reusable within same WABA)
+ * @param {string} mediaType — one of: image, document, audio, video
+ * @param {string} caption — optional caption text
+ */
+async function sendMedia(to, mediaId, mediaType, caption) {
+  if (PROVIDER === 'meta') {
+    const url = `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+    const mediaPayload = { id: mediaId };
+    if (caption && mediaType !== 'audio') {
+      mediaPayload.caption = caption;
+    }
+    const payload = {
+      messaging_product: "whatsapp",
+      to: to,
+      type: mediaType,
+      [mediaType]: mediaPayload
+    };
+    try {
+      const response = await axios.post(url, payload, {
+        headers: {
+          'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log(`[whatsappService Meta] sendMedia to ${to}: ${response.status}`);
+      return response.data;
+    } catch (err) {
+      console.error(`[whatsappService Meta] sendMedia error:`, err.response?.data || err.message);
+      throw err;
+    }
+  }
+
+  // Gupshup stub
+  console.warn('[whatsappService] Media forwarding not supported on Gupshup provider');
+}
+
+/**
  * Send a template message via WhatsApp.
  * Stub only — not needed until production Meta Cloud API switch.
  *
@@ -167,4 +207,4 @@ async function optInUser(userNumber) {
   }
 }
 
-module.exports = { sendText, sendButtons, sendTemplate, optInUser };
+module.exports = { sendText, sendButtons, sendMedia, sendTemplate, optInUser };

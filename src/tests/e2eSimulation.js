@@ -33,6 +33,12 @@ function createMetaPayload(senderNumber, replyType, textOrTitle) {
         title: textOrTitle
       }
     };
+  } else if (replyType === 'image') {
+    message.type = 'image';
+    message.image = {
+      id: textOrTitle,  // mediaId placeholder
+      caption: 'Photo of affected area'
+    };
   } else {
     message.type = 'text';
     message.text = { body: textOrTitle };
@@ -81,6 +87,9 @@ async function run() {
   await sendMsg(PATIENT, 'text', 'Ravi', 'Patient sends name "Ravi"');
   await sendMsg(PATIENT, 'text', '34', 'Patient sends age "34"');
   await sendMsg(PATIENT, 'text', 'Fever since 2 days, body ache', 'Patient sends symptoms');
+
+  // Patient sends image of affected area (requires real media_id to fully test delivery)
+  await sendMsg(PATIENT, 'image', 'placeholder-media-id-12345', 'Patient sends image of affected area');
 
   await sendMsg(DOCTOR, 'text', 'Hello Ravi, noted your symptoms', 'Doctor sends "Hello Ravi..."');
   await sendMsg(PATIENT, 'text', 'Thank you doctor', 'Patient sends "Thank you doctor"');
