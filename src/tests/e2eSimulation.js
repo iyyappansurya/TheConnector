@@ -1,96 +1,107 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../../Config.env') });
 const axios = require('axios');
 
-const WEBHOOK_URL = 'http://127.0.0.1:3000/webhook';
-const DEBUG_URL = 'http://127.0.0.1:3000/debug/session';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:3000/webhook';
 
 const DOCTOR = process.env.DOCTOR_WA_NUMBER;
 const PHARMACY = process.env.PHARMACY_WA_NUMBER;
-const PATIENT = '918610447907';
-const PATIENT2 = '919999999999'; // Note: Cannot use Pharmacy's number as Patient 2
+const PATIENT = process.env.TEST_PATIENT_NUMBER || '918610447907';
+const PATIENT2 = '919999999999';
 
 let msgCounter = 0;
 
-function createBasicPayload(senderNumber, replyType, textOrTitle) {
+/**
+ * Create a Meta Cloud API webhook payload.
+ * Meta sends: { object, entry: [{ changes: [{ value: { messages: [...] } }] }] }
+ */
+function createMetaPayload(senderNumber, replyType, textOrTitle) {
   msgCounter++;
-  const payloadData = { type: replyType };
-  
+  const messageId = `test-msg-${msgCounter}-${Date.now()}`;
+
+  let message = {
+    from: senderNumber,
+    id: messageId,
+    timestamp: Math.floor(Date.now() / 1000).toString()
+  };
+
   if (replyType === 'button_reply') {
-    payloadData.title = textOrTitle;
+    message.type = 'interactive';
+    message.interactive = {
+      type: 'button_reply',
+      button_reply: {
+        id: `btn-${msgCounter}`,
+        title: textOrTitle
+      }
+    };
   } else {
-    payloadData.text = textOrTitle;
+    message.type = 'text';
+    message.text = { body: textOrTitle };
   }
 
   return {
-    app: "SkinSpecialist",
-    timestamp: Date.now(),
-    version: 2,
-    type: "message",
-    payload: {
-      id: `test-msg-${msgCounter}`,
-      source: senderNumber,
-      type: replyType,
-      payload: payloadData,
-      sender: {
-        phone: senderNumber,
-        name: "TestUser"
-      }
-    }
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'WHATSAPP_BUSINESS_ACCOUNT_ID',
+      changes: [{
+        value: {
+          messaging_product: 'whatsapp',
+          metadata: {
+            display_phone_number: '0000000000',
+            phone_number_id: process.env.WHATSAPP_PHONE_NUMBER_ID || '0000'
+          },
+          messages: [message]
+        },
+        field: 'messages'
+      }]
+    }]
   };
 }
 
 async function sendMsg(senderNumber, replyType, textOrTitle, description) {
-  console.log(`[TEST] Step ${msgCounter + 1}: ${description} — sending payload`);
-  const payload = createBasicPayload(senderNumber, replyType, textOrTitle);
+  console.log(`[TEST] Step ${msgCounter + 1}: ${description}`);
+  const payload = createMetaPayload(senderNumber, replyType, textOrTitle);
   try {
-    await axios.post(WEBHOOK_URL, payload);
-    // 500ms delay as requested
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await axios.post(WEBHOOK_URL, payload, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    // 2000ms delay — production API calls need more time
+    await new Promise(resolve => setTimeout(resolve, 2000));
   } catch (err) {
     console.error(`Error sending step ${msgCounter}:`, err.message);
   }
 }
 
 async function run() {
-  console.log('--- STARTING E2E SIMULATION ---\n');
+  console.log('--- STARTING E2E SIMULATION ---');
+  console.log(`Target: ${WEBHOOK_URL}`);
+  console.log(`Patient: ${PATIENT} | Doctor: ${DOCTOR} | Pharmacy: ${PHARMACY}\n`);
 
   await sendMsg(PATIENT, 'text', 'Hi', 'Patient sends "Hi"');
   await sendMsg(PATIENT2, 'text', 'Hi', 'Patient 2 sends "Hi" and gets queued');
   await sendMsg(PATIENT, 'text', 'Ravi', 'Patient sends name "Ravi"');
   await sendMsg(PATIENT, 'text', '34', 'Patient sends age "34"');
   await sendMsg(PATIENT, 'text', 'Fever since 2 days, body ache', 'Patient sends symptoms');
-  
+
   await sendMsg(DOCTOR, 'text', 'Hello Ravi, noted your symptoms', 'Doctor sends "Hello Ravi..."');
   await sendMsg(PATIENT, 'text', 'Thank you doctor', 'Patient sends "Thank you doctor"');
-  
+
   await sendMsg(DOCTOR, 'text', 'done', 'Doctor sends "done"');
-  
-  await sendMsg(DOCTOR, 'button_reply', 'Yes, start prescription', 'Doctor sends button reply "Yes, start prescription"');
+
+  await sendMsg(DOCTOR, 'button_reply', 'Start prescription', 'Doctor sends "Start prescription"');
   await sendMsg(DOCTOR, 'text', 'Paracetamol 500mg', 'Doctor sends "Paracetamol 500mg"');
   await sendMsg(DOCTOR, 'text', '1 tab twice daily', 'Doctor sends "1 tab twice daily"');
   await sendMsg(DOCTOR, 'text', '3 days', 'Doctor sends "3 days"');
-  
-  await sendMsg(DOCTOR, 'button_reply', 'Done, send prescription', 'Doctor sends button reply "Done, send prescription"');
-  await sendMsg(DOCTOR, 'button_reply', 'Confirm & Send', 'Doctor sends button reply "Confirm & Send"');
-  
+
+  await sendMsg(DOCTOR, 'button_reply', 'Send prescription', 'Doctor sends "Send prescription"');
+  await sendMsg(DOCTOR, 'button_reply', 'Confirm & Send', 'Doctor sends "Confirm & Send"');
+
   await sendMsg(PHARMACY, 'text', 'Hi Ravi medicines are ready, 15% discount available', 'Pharmacy sends discount notification');
   await sendMsg(PATIENT, 'text', 'Thank you, I will visit today', 'Patient replies to pharmacy');
   await sendMsg(PHARMACY, 'text', 'See you!', 'Pharmacy says See you!');
   await sendMsg(PHARMACY, 'text', 'order confirmed', 'Pharmacy confirms order to fulfill session & advance queue');
 
-  console.log('\n--- FETCHING FINAL SESSION STATES ---');
-  try {
-    console.log('\nPatient 1:');
-    const res1 = await axios.get(`${DEBUG_URL}/${PATIENT}`);
-    console.log(JSON.stringify(res1.data, null, 2));
-
-    console.log('\nPatient 2:');
-    const res2 = await axios.get(`${DEBUG_URL}/${PATIENT2}`);
-    console.log(JSON.stringify(res2.data, null, 2));
-  } catch (err) {
-    console.error('Could not fetch session state:', err.message);
-  }
   console.log('\n--- E2E SIMULATION COMPLETE ---');
+  console.log('Test complete — check your phones for messages');
 }
 
 run();
