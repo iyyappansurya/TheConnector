@@ -9,6 +9,7 @@
 
 const { createSession, getSession, updateSession } = require('../services/sessionStore');
 const { sendText, sendMedia } = require('../services/whatsappService');
+const logger = require('../utils/logger');
 
 const MEDIA_TYPES = ['image', 'document', 'audio', 'video'];
 
@@ -26,7 +27,7 @@ async function handle(parsed) {
     const { hasActiveSession, addToQueue, getQueuePosition } = require('../services/sessionStore');
     const isBusy = await hasActiveSession();
     session = await createSession(senderNumber);
-    console.log(`[patientHandler] New session created for ${senderNumber}`);
+    logger.info('patientHandler', `New session created for ${senderNumber}`);
     
     if (isBusy) {
       await updateSession(senderNumber, { state: 'WAITING' });
@@ -75,21 +76,40 @@ async function handle(parsed) {
 
     // Step 1: collect name
     if (intakeData.name === '') {
-      await updateSession(senderNumber, { intakeData: { name: messageText } });
-      await sendText(senderNumber, `Thanks ${messageText}! How old are you?`);
+      const name = messageText.trim();
+      if (name.length < 2 || name.length > 50) {
+        await sendText(senderNumber, 'Please enter a valid name (2-50 characters).');
+        return;
+      }
+      if (/^\d+$/.test(name)) {
+        await sendText(senderNumber, 'Name cannot be just numbers. Please enter your name.');
+        return;
+      }
+      await updateSession(senderNumber, { intakeData: { name } });
+      await sendText(senderNumber, `Thanks ${name}! How old are you?`);
       return;
     }
 
     // Step 2: collect age
     if (intakeData.age === '') {
-      await updateSession(senderNumber, { intakeData: { age: messageText } });
+      const age = parseInt(messageText.trim(), 10);
+      if (isNaN(age) || age < 0 || age > 120) {
+        await sendText(senderNumber, 'Please enter a valid age (0-120).');
+        return;
+      }
+      await updateSession(senderNumber, { intakeData: { age: String(age) } });
       await sendText(senderNumber, 'Got it. Please briefly describe your symptoms.');
       return;
     }
 
     // Step 3: collect symptoms → notify doctor → go ACTIVE
     if (intakeData.symptoms === '') {
-      await updateSession(senderNumber, { intakeData: { symptoms: messageText } });
+      const symptoms = messageText.trim();
+      if (symptoms.length < 3) {
+        await sendText(senderNumber, 'Please describe your symptoms in more detail (at least a few words).');
+        return;
+      }
+      await updateSession(senderNumber, { intakeData: { symptoms } });
 
       // Re-read session to get the fully merged intakeData
       session = await getSession(senderNumber);
@@ -115,7 +135,7 @@ async function handle(parsed) {
 
       // Transition to ACTIVE
       await updateSession(senderNumber, { state: 'ACTIVE' });
-      console.log(`[patientHandler] Intake complete for ${senderNumber}, state → ACTIVE`);
+      logger.info('patientHandler', `Intake complete for ${senderNumber}, state → ACTIVE`);
       return;
     }
   }
@@ -146,7 +166,7 @@ async function handle(parsed) {
   if (session.state === 'COMPLETE') {
     const pharmacyNumber = process.env.PHARMACY_WA_NUMBER;
     await sendText(pharmacyNumber, `[Patient ${session.intakeData.name}]: ${messageText}`);
-    console.log('[patientHandler] COMPLETE — forwarded to pharmacy');
+    logger.info('patientHandler', 'COMPLETE — forwarded to pharmacy');
     return;
   }
 }

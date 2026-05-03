@@ -8,6 +8,8 @@ const patientHandler = require('../handlers/patientHandler');
 const doctorHandler = require('../handlers/doctorHandler');
 const pharmacyHandler = require('../handlers/pharmacyHandler');
 const { checkIdempotency, acquireLock, releaseLock } = require('../services/concurrencyService');
+const logger = require('../utils/logger');
+const { sendAlert } = require('../services/alertService');
 
 const PROVIDER = process.env.WA_PROVIDER || 'gupshup';
 
@@ -15,12 +17,12 @@ const PROVIDER = process.env.WA_PROVIDER || 'gupshup';
 router.get('/webhook', (req, res) => {
   if (PROVIDER === 'meta') {
     if (req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === process.env.WHATSAPP_VERIFY_TOKEN) {
-      console.log('[webhook] GET /webhook — Meta verification ping accepted');
+      logger.info('webhook', 'Meta verification ping accepted');
       return res.status(200).send(req.query['hub.challenge']);
     }
   }
   
-  console.log('[webhook] GET /webhook — verification ping received');
+  logger.info('webhook', 'Verification ping received');
   res.status(200).send('webhook active');
 });
 
@@ -45,7 +47,7 @@ async function routeMessage(parsed) {
   if (!parsed) return;
 
   const { senderNumber } = parsed;
-  console.log(`[webhook] Routing message from ${senderNumber}`);
+  logger.info('webhook', `Routing message from ${senderNumber}`, { senderNumber, type: parsed.messageType });
 
   if (senderNumber === process.env.DOCTOR_WA_NUMBER) {
     await doctorHandler.handle(parsed);
@@ -70,7 +72,7 @@ router.post('/webhook', async (req, res) => {
   // 2. Message-Level Idempotency Check
   const isNewMessage = await checkIdempotency(messageId);
   if (!isNewMessage) {
-    console.log(`[webhook] Dropped duplicate message ${messageId}`);
+    logger.info('webhook', `Dropped duplicate message ${messageId}`);
     return;
   }
 
@@ -79,7 +81,7 @@ router.post('/webhook', async (req, res) => {
   const locked = await acquireLock(senderNumber, requestId, 15);
   
   if (!locked) {
-    console.warn(`[webhook] Concurrency collision. Request locked for user ${senderNumber}`);
+    logger.warn('webhook', `Concurrency collision for user ${senderNumber}`);
     return; // Wait, dropping lock fails user? Could retry, but we'll enforce quick resolve
   }
 
@@ -87,7 +89,8 @@ router.post('/webhook', async (req, res) => {
   try {
     await routeMessage(parsed);
   } catch (err) {
-    console.error('[webhook] Error in routeMessage:', err.message);
+    logger.error('webhook', 'Error in routeMessage', { error: err.message, senderNumber });
+    sendAlert(`Error processing message from ${senderNumber}: ${err.message}`);
   } finally {
     // 5. Always release lock natively inside Finally scope using internal Lua logic!
     await releaseLock(senderNumber, requestId);
