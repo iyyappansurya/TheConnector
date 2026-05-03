@@ -38,7 +38,7 @@ async function handle(parsed) {
 
     await sendButtons(senderNumber, 
       `Ready to send prescription to ${process.env.PHARMACY_NAME}?`, 
-      ['Yes, start prescription', 'No, continue chat']
+      ['Start prescription', 'Continue chat']
     );
     return;
   }
@@ -59,6 +59,14 @@ async function handle(parsed) {
       await sendText(senderNumber, 'Please use text during the prescription process.');
       return;
     }
+    // Allow doctor to re-trigger if stuck at confirm_start
+    if (session.prescription.step === 'confirm_start' && (textLower === 'done' || textLower === 'end')) {
+      await sendButtons(senderNumber,
+        `Ready to send prescription to ${process.env.PHARMACY_NAME}?`,
+        ['Start prescription', 'Continue chat']
+      );
+      return;
+    }
     await handlePrescribing(parsed, session);
     return;
   }
@@ -73,10 +81,10 @@ async function handlePrescribing(parsed, session) {
   const step = prescription.step;
 
   if (step === 'confirm_start') {
-    if (messageText === 'Yes, start prescription' || messageText === '1') {
+    if (messageText === 'Start prescription' || messageText === '1') {
       await updateSession(patientNumber, { prescription: { step: 'medicine_name' } });
       await sendText(senderNumber, 'Medicine name and strength? \n(e.g. Paracetamol 500mg)');
-    } else if (messageText === 'No, continue chat' || messageText === '2') {
+    } else if (messageText === 'Continue chat' || messageText === '2') {
       await updateSession(patientNumber, { state: 'ACTIVE', prescription: { step: '' } });
       await sendText(senderNumber, 'Okay, continuing chat.');
     }
@@ -111,15 +119,15 @@ async function handlePrescribing(parsed, session) {
         step: 'add_more'
       } 
     });
-    await sendButtons(senderNumber, 'Medicine added! Add another or finish?', ['Add another medicine', 'Done, send prescription']);
+    await sendButtons(senderNumber, 'Medicine added! Add another or finish?', ['Add another', 'Send prescription']);
     return;
   }
 
   if (step === 'add_more') {
-    if (messageText === 'Add another medicine' || messageText === '1') {
+    if (messageText === 'Add another' || messageText === '1') {
       await updateSession(patientNumber, { prescription: { step: 'medicine_name' } });
       await sendText(senderNumber, 'Medicine name and strength?');
-    } else if (messageText === 'Done, send prescription' || messageText === '2') {
+    } else if (messageText === 'Send prescription' || messageText === '2') {
       // Re-fetch to get updated medicines properly
       const updatedSession = await updateSession(patientNumber, { prescription: { step: 'confirm_send' } });
       

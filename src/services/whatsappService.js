@@ -100,8 +100,12 @@ async function sendButtons(to, bodyText, buttons) {
       console.log(`[whatsappService Meta] sendButtons to ${to}: ${response.status}`);
       return response.data;
     } catch (err) {
-      console.error(`[whatsappService Meta] sendButtons error:`, err.response?.data || err.message);
-      throw err;
+      console.warn(`[whatsappService Meta] sendButtons failed, falling back to text:`, err.response?.data || err.message);
+      let fallback = bodyText + '\n\nReply with the number:';
+      buttons.slice(0, 3).forEach((label, index) => {
+        fallback += `\n${index + 1}. ${label}`;
+      });
+      return await sendText(to, fallback);
     }
   }
 
