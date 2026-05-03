@@ -1,7 +1,7 @@
 // src/index.js — Express app entry point
 // Loads environment variables and starts the HTTP server.
 
-require('dotenv').config({ path: './Config.env' });
+require('dotenv').config({ path: './config.env' });
 const express = require('express');
 const webhookRouter = require('./routes/webhook');
 

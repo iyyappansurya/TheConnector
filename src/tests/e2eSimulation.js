@@ -1,4 +1,4 @@
-require('dotenv').config({ path: require('path').resolve(__dirname, '../../Config.env') });
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../config.env') });
 const axios = require('axios');
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://localhost:3000/webhook';
