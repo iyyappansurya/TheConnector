@@ -113,7 +113,7 @@ async function handle(parsed) {
 
       // Re-read session to get the fully merged intakeData
       session = await getSession(senderNumber);
-      const { name, age, symptoms } = session.intakeData;
+      const { name, age } = session.intakeData;
 
       // Notify doctor
       const doctorNumber = process.env.DOCTOR_WA_NUMBER;
